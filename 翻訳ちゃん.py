@@ -10,28 +10,98 @@ from bs4 import BeautifulSoup
 from time import sleep
 
 
-def main():
-    #クリップボードの内容を取得
-    orig = str(pyperclip.paste())
-    #orig = "splitに関連したメソッドで、rsplitというメソッドがあります。こちらは、splitの文字区切りを逆から行っていく働きをします。注意点として、rsplitは右から区切りますが、リストに代入される順番は変わらず左からとなります。基本編でURLを回数を指定して区切りましたが、それをrsplitで区切って確認しましょう。"
-    origs = orig.split("。") 
+class Translator:       #seleniumによる翻訳を定義するクラス
+    def __init__(self):
+        self.options = Options()
+        self.options.binary_location =  "C:\\Program Files\\chrome-win\\chrome.exe"
+        #self.options.add_argument("--headless")
+        #self.options.add_argument("--proxy-server=https://proxy.funai.co.jp:3128")
+        self.browser = webdriver.Chrome(options=self.options)
+        self.browser.minimize_window()
+        self.browser.implicitly_wait(2)
 
-    #GUIの準備
+    def trans(self, txt , lg1 , lg2):      # lg1からlg2に翻訳する関数
+
+        # 翻訳したい文をURLに埋め込んでからアクセス
+        text_for_url = urllib.parse.quote_plus(txt, safe='')
+        url = "https://translate.google.co.jp/#{1}/{2}/{0}".format(text_for_url , lg1 , lg2)
+        self.browser.get(url)
+
+        # 少し待つ
+        wait_time = len(text) / 100
+        if wait_time < 0.5:
+            wait_time = 0.5
+        time.sleep(wait_time)
+
+        # 翻訳結果を抽出
+        soup = BeautifulSoup(self.browser.page_source, "html.parser")
+        ret =  soup.find(class_="tlid-translation translation")
+
+        return ret.text    
+
+    def quit(self):
+        self.browser.quit()
+
+
+def main():
+    # クリップボードの内容を取得
+    orig = str(pyperclip.paste())
+
+    # 改行を検出して分割．この際改行情報"\r\n"は失われる
+    orignal_elements = orig.splitlines()
+    print(orignal_elements)
+    # 翻訳対象の日本語を格納する変数
+    origs = []
+
+    # 空白行を取得するためのグローバル変数
+    global blank_row
+    blank_row = []
+    count = 0
+    while count < len(orignal_elements):
+        buf = orignal_elements[count]           #"   "のような空白のみの要素を抹殺
+        buf = buf.replace(" " , "")             #単にスペースを消すだけでは外国語に対応できないので，差分をとる
+        if buf != "":                           #空白でない場合は翻訳対象に追加
+            origs.append(orignal_elements[count])
+        else:
+            blank_row.append(count)             #空白の場合はもともと空白行だったので，要素の場所をintで取得
+        count += 1
+    
+    # 翻訳する2言語を設定[母国語,外国語]    将来的にプルダウンから言語を選択できるように構築する予定．
+    global lg
+    lg = ["ja" , "en"]
+
+    # 逆翻訳にする二言語を設定 [外国語,日本語]
+    global rev_lg
+    rev_lg = list(reversed(lg))
+
+    # GUIの準備
     app = wx.App()
+
+    # 読み込み中の表示
+    read_frame = wx.Frame(None, wx.ID_ANY, "翻訳中...", size=(250,0))
+    #read_panel = wx.Panel(read_frame)
+    #read_text = wx.TextCtrl(read_panel,wx.ID_ANY, "翻訳中...",style = wx.TE_CENTER)
+    # = wx.BoxSizer(wx.HORIZONTAL)
+    #read_layout.Add(read_text,flag = wx.EXPAND)
+    #read_panel.SetSizer(read_layout)
+    #read_text.Disable()
+    read_frame.Centre() #中央に表示
+    read_frame.Show()
+
     size = (900,600)
-    # size=screenSize
     global frame
     frame = wx.Frame(None, wx.ID_ANY, '翻訳ちゃん', size=size)
-    #panel = wx.Panel(frame, wx.ID_ANY)
     panel = wx.lib.scrolledpanel.ScrolledPanel(frame,-1, size=size, pos=(0,28), style=wx.SIMPLE_BORDER)
     panel.SetupScrolling()
     panel.SetBackgroundColour('#AFAFAF')
 
-
     global rows
+    global text
     global en_text
+    global jp_text
+    global btn
     rows = len(origs)           #lenは0を含むため，行数に注意
-    layout = wx.FlexGridSizer(rows,4,0,0)
+    layout = wx.FlexGridSizer(rows+1,4,0,0)
 
     text = [""]*rows            #原文テキストウィジェットの準備
     en_text = [""]*rows         #英文テキストウィジェットの準備
@@ -39,20 +109,20 @@ def main():
     btn = [""]*rows             #翻訳ボタンウィジェットの準備
 
     cellsize = (270,90)
-    for row in range(rows-1):
+    for row in range(rows):
         #原文
-        txt = origs[row]+"。"
+        txt = origs[row]
         text[row] = wx.TextCtrl(panel, row , txt, style = wx.TE_MULTILINE,size=cellsize)
         #print("原文：",txt)
 
         #英文
-        en_txt = translator.jp2entrans(origs[row]+"。")
+        en_txt = translator.trans(origs[row], *lg)
         en_text[row] = wx.TextCtrl(panel, row , en_txt, style = wx.TE_MULTILINE,size=cellsize)
         en_text[row].Disable()      #書き込み禁止
         #print("英文：",en_txt)
 
         #再翻訳
-        jp_txt = translator.en2jptrans(en_txt)
+        jp_txt = translator.trans(en_txt, *rev_lg)
         jp_text[row] = wx.TextCtrl(panel, row , jp_txt, style = wx.TE_MULTILINE,size=cellsize)
         jp_text[row].Disable()      #書き込み禁止
         #print("再翻訳文：",jp_txt)
@@ -69,12 +139,7 @@ def main():
         layout.Add(en_text[row], flag=wx.SHAPED)      #英文        
         layout.Add(btn[row],flag=wx.SHAPED | 
             wx.ALIGN_CENTER_VERTICAL | wx.TE_MULTILINE)             #翻訳ボタン
-
-    layout.AddGrowableCol(0, 3)
-    layout.AddGrowableCol(1, 3)
-    layout.AddGrowableCol(2, 3)
-    layout.AddGrowableCol(3, 1)
-
+    
     copy_btn = wx.Button(panel, wx.ID_ANY, "翻訳完了", size=(80, 40))
     copy_btn.Bind(wx.EVT_BUTTON, OnClickCopyBtn)
     layout.Add(copy_btn,flag=wx.SHAPED | 
@@ -90,10 +155,20 @@ def main():
     layout.Add(exit_btn,flag=wx.SHAPED | 
         wx.ALIGN_CENTER_VERTICAL | wx.TE_MULTILINE)
 
+    # ボタンの配置
+    layout.AddGrowableCol(0, 3)
+    layout.AddGrowableCol(1, 3)
+    layout.AddGrowableCol(2, 3)
+    layout.AddGrowableCol(3, 1)
+
+    # レイアウトの更新
     panel.SetSizer(layout)
 
+    # ステータスバーを定義
     frame.CreateStatusBar()
     frame.SetStatusText("オンラインサービス利用のため守秘義務を遵守の上ご利用ください")
+    
+    read_frame.Close()
     frame.Centre() #中央に表示
     frame.Show()
     app.MainLoop()
@@ -103,84 +178,43 @@ def OnClickBtn(event):
     num = event.GetId()
 
     btn[num].Disable()
+    
     n_txt = text[num].GetValue()
+    n_en_txt = translator.trans(n_txt, *lg)
+    n_jp_txt = translator.trans(n_en_txt, *rev_lg)
     
-    n_en_txt = translator.jp2entrans(n_txt)
-    en_text[num].Enable()
     en_text[num].SetValue(n_en_txt)
-    en_text[num].Disable()
-    
-    n_jp_txt = translator.en2jptrans(n_en_txt)
-    jp_text[num].Enable()
     jp_text[num].SetValue(n_jp_txt)
-    jp_text[num].Disable()
 
     btn[num].Enable()
 
-def copy_all():
-    fin_txt = ""
-    for row in range(rows-1):
-        fin_txt += en_text[row].GetValue()
+def copy_all():         #翻訳結果の英文をクリップボードにコピーする関数
+
+    fin_txt = ""        # クリップボードにコピーする文字列 
+    fin_txts = []       # 翻訳後の英文をセルごとに格納する文字列
+
+    for row in range(rows):
+        fin_txts.append(en_text[row].GetValue()+"\r\n")     #splitlinesメソッドで失われた改行情報を復元
+
+    for blank in blank_row:
+        fin_txts.insert(blank,"\r\n")                       #空白行の場所はblank_rowに格納されているので空白行を追加
+
+    for element in fin_txts:
+        fin_txt += element                                  #改行情報を復元したので出力用文字列として結合
+
     return fin_txt
 
-def OnClickCopyBtn(event):
+def OnClickCopyBtn(event):          #【翻訳完了】ボタンが押された場合
     pyperclip.copy(copy_all())
 
-def OnClickRetransBtn(event):
+def OnClickRetransBtn(event):       #【各セルをリセットして再翻訳】ボタンが押された場合
     frame.Close()
     main()
 
-def OnClickExitBtn(event):
+def OnClickExitBtn(event):          #【翻訳ちゃんを終了】ボタンが押された場合
     pyperclip.copy(copy_all())
     frame.Close()
     translator.quit()
-
-class Translator:       #seleniumによる翻訳部分
-    def __init__(self):
-        self.options = Options()
-        self.options.binary_location =  "C:\\Program Files\\chrome-win\\chrome.exe"
-        #self.options.add_argument("--headless")
-        #self.options.add_argument("--proxy-server=http://proxy.funai.co.jp")
-        self.browser = webdriver.Chrome(options=self.options)
-        self.browser.minimize_window()
-        self.browser.implicitly_wait(2)
-
-    def en2jptrans(self, text):
-
-        # 翻訳したい文をURLに埋め込んでからアクセスする
-        text_for_url = urllib.parse.quote_plus(text, safe='')
-        url = "https://translate.google.co.jp/#en/ja/{0}".format(text_for_url)
-        self.browser.get(url)
-
-        # # 数秒待機する（大量の文書を連続して翻訳するときはコメントアウトしてください）
-        wait_time = len(text) / 50
-        time.sleep(wait_time)
-
-        # 翻訳結果を抽出する
-        soup = BeautifulSoup(self.browser.page_source, "html.parser")
-        ret =  soup.find(class_="tlid-translation translation")
-
-        return ret.text
-
-    def jp2entrans(self, text):
-
-        # 翻訳したい文をURLに埋め込んでからアクセスする
-        text_for_url = urllib.parse.quote_plus(text, safe='')
-        url = "https://translate.google.co.jp/#ja/en/{0}".format(text_for_url)
-        self.browser.get(url)
-
-        # # 数秒待機する（大量の文書を連続して翻訳するときはコメントアウトしてください）
-        wait_time = len(text) / 50
-        time.sleep(wait_time)
-
-        # 翻訳結果を抽出する
-        soup = BeautifulSoup(self.browser.page_source, "html.parser")
-        ret =  soup.find(class_="tlid-translation translation")
-
-        return ret.text
-
-    def quit(self):
-        self.browser.quit()
 
 
 if __name__ == "__main__":
@@ -192,9 +226,7 @@ main()
 ・コンボボックス
 https://www.python-izm.com/gui/wxpython/wxpython_combobox/
     →言語選択
-・区切り文字で？などに対応
 ・単語帳など
-・常駐モード
 ・各セルのリサイズ
 ・行追加ボタン
 
