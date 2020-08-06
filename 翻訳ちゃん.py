@@ -20,15 +20,16 @@ class Translator:       #seleniumによる翻訳を定義するクラス
         self.browser.minimize_window()
         self.browser.implicitly_wait(2)
 
-    def trans(self, txt , lg1 , lg2):      # lg1からlg2に翻訳する関数
-
+    def gtrans(self, txt , lg1 , lg2):      # lg1からlg2に翻訳する関数
+        if txt == "":                      # 入力が空なら空で返す
+            return txt
         # 翻訳したい文をURLに埋め込んでからアクセス
         text_for_url = urllib.parse.quote_plus(txt, safe='')
         url = "https://translate.google.co.jp/#{1}/{2}/{0}".format(text_for_url , lg1 , lg2)
         self.browser.get(url)
 
         # 少し待つ
-        wait_time = len(text) / 100
+        wait_time = len(txt) / 1000
         if wait_time < 0.5:
             wait_time = 0.5
         time.sleep(wait_time)
@@ -50,16 +51,19 @@ def main():
     # 改行を検出して分割．この際改行情報"\r\n"は失われる
     orignal_elements = orig.splitlines()
     print(orignal_elements)
-    # 翻訳対象の日本語を格納する変数
+
+    # 翻訳に関わる文字列を格納する変数
     origs = []
+    en_txt = []
+    jp_txt = []
 
     # 空白行を取得するためのグローバル変数
     global blank_row
     blank_row = []
     count = 0
-    while count < len(orignal_elements):
-        buf = orignal_elements[count]           #"   "のような空白のみの要素を抹殺
-        buf = buf.replace(" " , "")             #単にスペースを消すだけでは外国語に対応できないので，差分をとる
+    while count < len(orignal_elements):        #空白行などの処理
+        buf = orignal_elements[count]           #単にスペースを消すだけでは外国語に対応できないので，差分をとる
+        buf = buf.replace(" " , "")             #"   "のような空白のみの要素を抹殺
         if buf != "":                           #空白でない場合は翻訳対象に追加
             origs.append(orignal_elements[count])
         else:
@@ -79,15 +83,25 @@ def main():
 
     # 読み込み中の表示
     read_frame = wx.Frame(None, wx.ID_ANY, "翻訳中...", size=(250,0))
-    #read_panel = wx.Panel(read_frame)
-    #read_text = wx.TextCtrl(read_panel,wx.ID_ANY, "翻訳中...",style = wx.TE_CENTER)
-    # = wx.BoxSizer(wx.HORIZONTAL)
-    #read_layout.Add(read_text,flag = wx.EXPAND)
-    #read_panel.SetSizer(read_layout)
-    #read_text.Disable()
     read_frame.Centre() #中央に表示
     read_frame.Show()
 
+    global rows
+    rows = len(origs)           #lenは0を含むため，行数に注意
+
+    for row in range(rows):     # 原文をもとに先に翻訳しておく
+        #原文
+        txt = origs[row]
+        #print("原文：",txt)
+
+        #英文
+        en_txt.append(translator.gtrans(origs[row], *lg))
+        #print("英文：",en_txt)
+
+        #再翻訳
+        jp_txt.append(translator.gtrans(en_txt[row], *rev_lg))
+
+    # メインコンソールの設定
     size = (900,600)
     global frame
     frame = wx.Frame(None, wx.ID_ANY, '翻訳ちゃん', size=size)
@@ -95,12 +109,10 @@ def main():
     panel.SetupScrolling()
     panel.SetBackgroundColour('#AFAFAF')
 
-    global rows
     global text
     global en_text
     global jp_text
     global btn
-    rows = len(origs)           #lenは0を含むため，行数に注意
     layout = wx.FlexGridSizer(rows+1,4,0,0)
 
     text = [""]*rows            #原文テキストウィジェットの準備
@@ -116,20 +128,19 @@ def main():
         #print("原文：",txt)
 
         #英文
-        en_txt = translator.trans(origs[row], *lg)
-        en_text[row] = wx.TextCtrl(panel, row , en_txt, style = wx.TE_MULTILINE,size=cellsize)
+        en_text[row] = wx.TextCtrl(panel, row , en_txt[row], style = wx.TE_MULTILINE,size=cellsize)
         en_text[row].Disable()      #書き込み禁止
         #print("英文：",en_txt)
 
         #再翻訳
-        jp_txt = translator.trans(en_txt, *rev_lg)
-        jp_text[row] = wx.TextCtrl(panel, row , jp_txt, style = wx.TE_MULTILINE,size=cellsize)
+        jp_text[row] = wx.TextCtrl(panel, row , jp_txt[row], style = wx.TE_MULTILINE,size=cellsize)
         jp_text[row].Disable()      #書き込み禁止
         #print("再翻訳文：",jp_txt)
 
         #翻訳ボタン
         btn[row] = wx.Button(panel, row, "翻訳", size=(60, 40))
         btn[row].Bind(wx.EVT_BUTTON, OnClickBtn)            #ボタンをイベントにバインド
+        btn[row].SetToolTip("この行の日本語を再度読み込み翻訳します")
 
 
         #ウィジェットの配置
@@ -140,20 +151,23 @@ def main():
         layout.Add(btn[row],flag=wx.SHAPED | 
             wx.ALIGN_CENTER_VERTICAL | wx.TE_MULTILINE)             #翻訳ボタン
     
-    copy_btn = wx.Button(panel, wx.ID_ANY, "翻訳完了", size=(80, 40))
+    copy_btn = wx.Button(panel, wx.ID_ANY, "コピー", size=(80, 40))
     copy_btn.Bind(wx.EVT_BUTTON, OnClickCopyBtn)
     layout.Add(copy_btn,flag=wx.SHAPED | 
         wx.ALIGN_CENTER_VERTICAL | wx.TE_MULTILINE)
+    copy_btn.SetToolTip("翻訳結果の英文を全てコピーします")
 
-    retrans_btn = wx.Button(panel, wx.ID_ANY, "各セルをリセットして再翻訳", size=(200, 40))
+    retrans_btn = wx.Button(panel, wx.ID_ANY, "各セルのリセット", size=(200, 40))
     retrans_btn.Bind(wx.EVT_BUTTON, OnClickRetransBtn)
     layout.Add(retrans_btn,flag=wx.SHAPED | 
         wx.ALIGN_CENTER_VERTICAL | wx.TE_MULTILINE)
-    
-    exit_btn = wx.Button(panel, wx.ID_ANY, "翻訳ちゃんを終了", size=(120, 40))
+    retrans_btn.SetToolTip("全てのセルをリセットし，新たにクリップボードから日本語を読み込んで再翻訳します")
+
+    exit_btn = wx.Button(panel, wx.ID_ANY, "終了", size=(120, 40))
     exit_btn.Bind(wx.EVT_BUTTON, OnClickExitBtn)
     layout.Add(exit_btn,flag=wx.SHAPED | 
         wx.ALIGN_CENTER_VERTICAL | wx.TE_MULTILINE)
+    exit_btn.SetToolTip("翻訳結果の英文を全てコピーし，翻訳ちゃんを終了します")
 
     # ボタンの配置
     layout.AddGrowableCol(0, 3)
@@ -180,8 +194,8 @@ def OnClickBtn(event):
     btn[num].Disable()
     
     n_txt = text[num].GetValue()
-    n_en_txt = translator.trans(n_txt, *lg)
-    n_jp_txt = translator.trans(n_en_txt, *rev_lg)
+    n_en_txt = translator.gtrans(n_txt, *lg)
+    n_jp_txt = translator.gtrans(n_en_txt, *rev_lg)
     
     en_text[num].SetValue(n_en_txt)
     jp_text[num].SetValue(n_jp_txt)
@@ -219,7 +233,7 @@ def OnClickExitBtn(event):          #【翻訳ちゃんを終了】ボタンが�
 
 if __name__ == "__main__":
     translator=Translator()
-main()
+    main()
 
 
 """ネタ帳
